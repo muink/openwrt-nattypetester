@@ -38,7 +38,7 @@ PKG_MINVER_VERSION:=$(PKG_UPSTREAM_VERSION)$(if $(PKG_UPSTREAM_GITHASH),+$(PKG_U
 # glibc-based while the target is musl. NativeAOT does not support cross-OS
 # compilation directly.
 CONTAINER_ENGINE?=docker
-DOTNET_IMAGE?=mcr.microsoft.com/dotnet/sdk:10.0-alpine3.24
+DOTNET_IMAGE?=mcr.microsoft.com/dotnet/sdk:10.0.404-alpine3.24
 NUGET_CACHE_DIR:=$(DL_DIR)/nattypetester-nuget
 
 ifeq ($(ARCH),x86_64)
@@ -94,9 +94,21 @@ define Build/Compile
 				-o /src/publish; \
 			app=/src/publish/NatTypeTester.Console; \
 			test -x "$$app"; \
-			musl_libc=$$(patchelf --print-needed "$$app" | grep -E "^libc[.]musl-.*[.]so[.]1$$"); \
-			test -n "$$musl_libc"; \
-			patchelf --replace-needed "$$musl_libc" libc.so "$$app"; \
+			needed=$$(patchelf --print-needed "$$app"); \
+			echo "ELF DT_NEEDED:"; \
+			echo "$$needed"; \
+			musl_libc=$$(printf '%s\n' "$$needed" | \
+				grep -E '^libc\.musl-.*\.so\.1$$' || true); \
+			if [ -n "$$musl_libc" ]; then \
+				echo "Replacing $$musl_libc with libc.so"; \
+				patchelf --replace-needed "$$musl_libc" libc.so "$$app"; \
+			elif printf '%s\n' "$$needed" | grep -qx 'libc.so'; then \
+				echo "Already using OpenWrt libc.so"; \
+			else \
+				echo "Error: unexpected libc dependency" >&2; \
+				exit 1; \
+			fi; \
+			echo "ELF DT_NEEDED after patch:"; \
 			patchelf --print-needed "$$app"'
 
 endef
