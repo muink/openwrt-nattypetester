@@ -69,7 +69,7 @@ define Build/Compile
 		exit 1; \
 	}
 	@command -v $(CONTAINER_ENGINE) >/dev/null 2>&1 || { \
-		echo "Error: $(CONTAINER_ENGINE) is required to build NatTypeTester NativeAOT." >&2; \
+		echo "Error: $(CONTAINER_ENGINE) is required." >&2; \
 		exit 1; \
 	}
 	@mkdir -p $(NUGET_CACHE_DIR)
@@ -83,7 +83,7 @@ define Build/Compile
 		-v "$(NUGET_CACHE_DIR):/nuget" \
 		-w /src \
 		$(DOTNET_IMAGE) \
-		sh -ec 'apk add --no-cache clang build-base zlib-dev patchelf; \
+		sh -euxc 'apk add --no-cache clang build-base zlib-dev patchelf; \
 			dotnet publish src/NatTypeTester.Console/NatTypeTester.Console.csproj \
 				-c Release \
 				-r $(DOTNET_RID) \
@@ -93,24 +93,25 @@ define Build/Compile
 				-p:MinVerVersionOverride=$(PKG_MINVER_VERSION) \
 				-o /src/publish; \
 			app=/src/publish/NatTypeTester.Console; \
+			echo "Checking NativeAOT output..."; \
+			ls -lh "$$app"; \
 			test -x "$$app"; \
-			needed=$$(patchelf --print-needed "$$app"); \
 			echo "ELF DT_NEEDED:"; \
-			echo "$$needed"; \
-			musl_libc=$$(printf '%s\n' "$$needed" | \
-				grep -E '^libc\.musl-.*\.so\.1$$' || true); \
+			needed=$$(patchelf --print-needed "$$app"); \
+			printf "%s\n" "$$needed"; \
+			musl_libc=$$(printf "%s\n" "$$needed" | \
+				sed -n "/^libc[.]musl-.*[.]so[.]1$$/p"); \
 			if [ -n "$$musl_libc" ]; then \
 				echo "Replacing $$musl_libc with libc.so"; \
 				patchelf --replace-needed "$$musl_libc" libc.so "$$app"; \
-			elif printf '%s\n' "$$needed" | grep -qx 'libc.so'; then \
-				echo "Already using OpenWrt libc.so"; \
+			elif printf "%s\n" "$$needed" | grep -qx "libc.so"; then \
+				echo "Already using libc.so"; \
 			else \
 				echo "Error: unexpected libc dependency" >&2; \
 				exit 1; \
 			fi; \
-			echo "ELF DT_NEEDED after patch:"; \
+			echo "Final ELF DT_NEEDED:"; \
 			patchelf --print-needed "$$app"'
-
 endef
 
 define Package/nattypetester-console/install
