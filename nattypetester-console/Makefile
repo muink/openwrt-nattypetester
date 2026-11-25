@@ -94,24 +94,24 @@ define Build/Compile
 				-o /src/publish; \
 			app=/src/publish/NatTypeTester.Console; \
 			echo "Checking NativeAOT output..."; \
-			ls -lh "$$app"; \
-			test -x "$$app"; \
+			ls -lh "$$$$app"; \
+			test -x "$$$$app"; \
 			echo "ELF DT_NEEDED:"; \
-			needed=$$(patchelf --print-needed "$$app"); \
-			printf "%s\n" "$$needed"; \
-			musl_libc=$$(printf "%s\n" "$$needed" | \
-				sed -n "/^libc[.]musl-.*[.]so[.]1$$/p"); \
-			if [ -n "$$musl_libc" ]; then \
-				echo "Replacing $$musl_libc with libc.so"; \
-				patchelf --replace-needed "$$musl_libc" libc.so "$$app"; \
-			elif printf "%s\n" "$$needed" | grep -qx "libc.so"; then \
+			needed=$$$$(patchelf --print-needed "$$$$app"); \
+			printf "%s\n" "$$$$needed"; \
+			musl_libc=$$$$(printf "%s\n" "$$$$needed" | \
+				sed -n "/^libc[.]musl-.*[.]so[.]1$$$$/p"); \
+			if [ -n "$$$$musl_libc" ]; then \
+				echo "Replacing $$$$musl_libc with libc.so"; \
+				patchelf --replace-needed "$$$$musl_libc" libc.so "$$$$app"; \
+			elif printf "%s\n" "$$$$needed" | grep -qx "libc.so"; then \
 				echo "Already using libc.so"; \
 			else \
 				echo "Error: unexpected libc dependency" >&2; \
 				exit 1; \
 			fi; \
 			echo "Final ELF DT_NEEDED:"; \
-			patchelf --print-needed "$$app"'
+			patchelf --print-needed "$$$$app"'
 endef
 
 define Package/nattypetester-console/install
