@@ -33,11 +33,12 @@ PKG_MAINTAINER:=Anya Lin <hukk1996@gmail.com>
 PKG_LICENSE:=MIT
 PKG_LICENSE_FILES:=LICENSE
 
+# MinVer requires a SemVer version. Use build metadata for non-tag commits.
 PKG_MINVER_VERSION:=$(PKG_UPSTREAM_VERSION)$(if $(PKG_UPSTREAM_GITHASH),+$(PKG_UPSTREAM_GITHASH))
 
 # NativeAOT is built in an Alpine container because the OpenWrt SDK host is
-# glibc-based while the target is musl. NativeAOT does not support cross-OS
-# compilation directly.
+# glibc-based while the target is musl. Build inside the target architecture's
+# container image instead of attempting a glibc-to-musl cross-OS compilation.
 CONTAINER_ENGINE?=docker
 DOTNET_IMAGE?=mcr.microsoft.com/dotnet/sdk:10.0-alpine
 NUGET_CACHE_DIR:=$(DL_DIR)/nattypetester-nuget
@@ -65,6 +66,10 @@ define Package/nattypetester-console/description
 endef
 
 define Build/Compile
+	@test -n "$(DOTNET_RID)" -a -n "$(CONTAINER_PLATFORM)" || { \
+		echo "Error: unsupported target architecture '$(ARCH)' (supported: x86_64, aarch64)." >&2; \
+		exit 1; \
+	}
 	@command -v $(CONTAINER_ENGINE) >/dev/null 2>&1 || { \
 		echo "Error: $(CONTAINER_ENGINE) is required to build NatTypeTester NativeAOT." >&2; \
 		exit 1; \
