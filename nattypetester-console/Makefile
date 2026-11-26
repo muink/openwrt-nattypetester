@@ -47,6 +47,12 @@ ifeq ($(ARCH),x86_64)
 else ifeq ($(ARCH),aarch64)
   DOTNET_RID:=linux-musl-arm64
   CONTAINER_PLATFORM:=linux/arm64
+else ifeq ($(ARCH),arm)
+  ifeq ($(CONFIG_arm_v7),y)
+    DOTNET_RID:=linux-musl-arm
+    CONTAINER_PLATFORM:=linux/arm/v7
+    DOTNET_IMAGE?=mcr.microsoft.com/dotnet/sdk:10.0.404-alpine3.24-arm32v7
+  endif
 endif
 
 include $(INCLUDE_DIR)/package.mk
@@ -56,7 +62,7 @@ define Package/nattypetester-console
   CATEGORY:=Network
   TITLE:=NatTypeTester STUN console client
   URL:=https://github.com/HMBSbige/NatTypeTester
-  DEPENDS:=@(aarch64||x86_64) +ca-bundle +libopenssl +zlib
+  DEPENDS:=@(aarch64||x86_64||arm_v7) +ca-bundle +libopenssl +zlib
 endef
 
 define Package/nattypetester-console/description
