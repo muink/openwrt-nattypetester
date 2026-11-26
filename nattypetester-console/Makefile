@@ -85,12 +85,17 @@ define Build/Compile
 		-e DOTNET_CLI_TELEMETRY_OPTOUT=1 \
 		-e DOTNET_NOLOGO=1 \
 		-e NUGET_PACKAGES=/nuget \
+		-e BUILD_UID=$(shell id -u) \
+		-e BUILD_GID=$(shell id -g) \
+		-e HOME=/tmp \
+		-e DOTNET_CLI_HOME=/tmp/dotnet-cli \
 		-v "$(PKG_BUILD_DIR):/src" \
 		-v "$(NUGET_CACHE_DIR):/nuget" \
 		-w /src \
 		$(DOTNET_IMAGE) \
-		sh -euxc 'apk add --no-cache clang build-base zlib-dev patchelf; \
-			dotnet publish src/NatTypeTester.Console/NatTypeTester.Console.csproj \
+		sh -euxc 'apk add --no-cache clang build-base zlib-dev patchelf su-exec; \
+			su-exec "$$$$BUILD_UID:$$$$BUILD_GID" dotnet publish \
+				src/NatTypeTester.Console/NatTypeTester.Console.csproj \
 				-c Release \
 				-r $(DOTNET_RID) \
 				--self-contained true \

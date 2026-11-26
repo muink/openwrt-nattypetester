@@ -27,7 +27,7 @@ The package Makefile also restricts package selection to the architectures it su
 The package Makefile runs `dotnet publish` inside an architecture-specific Alpine .NET SDK container. The container installs the Native AOT toolchain before publishing:
 
 ```sh
-apk add --no-cache clang build-base zlib-dev patchelf
+apk add --no-cache clang build-base zlib-dev patchelf su-exec
 ```
 
 The publish uses Native AOT and invariant globalization. The resulting executable is self-contained and does not require a .NET runtime or ICU data on the router.
