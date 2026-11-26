@@ -1,0 +1,214 @@
+
+name: Build and Release NatTypeTester
+
+on:
+  push:
+    tags:
+      - '*'
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nattypetester-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: OpenWrt ${{ matrix.series }} / ${{ matrix.arch }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+
+    strategy:
+      fail-fast: false
+      #max-parallel: 3
+      matrix:
+        include:
+          # OpenWrt 24.10 (IPK)
+          - series: '24.10'
+            version: '24.10.8'
+            target: 'x86/64'
+            arch: 'x86_64'
+            package_arch: 'x86_64'
+            extension: 'ipk'
+
+          - series: '24.10'
+            version: '24.10.8'
+            target: 'armsr/armv8'
+            arch: 'aarch64'
+            package_arch: 'aarch64_generic'
+            extension: 'ipk'
+
+          - series: '24.10'
+            version: '24.10.8'
+            target: 'armsr/armv7'
+            arch: 'armv7'
+            package_arch: 'arm_cortex-a15_neon-vfpv4'
+            extension: 'ipk'
+
+          # OpenWrt 25.12 (APK)
+          - series: '25.12'
+            version: '25.12.6'
+            target: 'x86/64'
+            arch: 'x86_64'
+            package_arch: 'x86_64'
+            extension: 'apk'
+
+          - series: '25.12'
+            version: '25.12.6'
+            target: 'armsr/armv8'
+            arch: 'aarch64'
+            package_arch: 'aarch64_generic'
+            extension: 'apk'
+
+          - series: '25.12'
+            version: '25.12.6'
+            target: 'armsr/armv7'
+            arch: 'armv7'
+            package_arch: 'arm_cortex-a15_neon-vfpv4'
+            extension: 'apk'
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
+      - name: Prepare artifact directories
+        run: mkdir -p artifacts dist
+
+      # OpenWrt 24.10 uses opkg and produces IPK packages.
+      - name: Build with OpenWrt 24.10 SDK
+        id: build_24
+        if: matrix.series == '24.10'
+        uses: fantastic-packages/gh-action-sdk@24.10
+        env:
+          TARGET: ${{ matrix.target }}
+          VERSION: ${{ matrix.version }}
+
+          FEED_DIR: ${{ github.workspace }}
+          FEEDNAME: nattypetester
+          PACKAGES: nattypetester-console
+
+          ARTIFACTS_DIR: ${{ github.workspace }}/artifacts
+          #V: s
+
+      - name: Upload 24 Error Logs
+        if: ${{ failure() && steps.build_24.conclusion == 'failure' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: Error-logs-${{ matrix.version }}-${{ matrix.package_arch }}-${{ matrix.arch }}-${{ hashFiles('**/Makefile') }}
+          path: ${{ github.workspace }}/artifacts/logs
+
+      # OpenWrt 25.12 uses apk and produces APK packages.
+      - name: Build with OpenWrt 25.12 SDK
+        id: build_25
+        if: matrix.series == '25.12'
+        uses: fantastic-packages/gh-action-sdk@master
+        env:
+          TARGET: ${{ matrix.target }}
+          VERSION: ${{ matrix.version }}
+
+          FEED_DIR: ${{ github.workspace }}
+          FEEDNAME: nattypetester
+          PACKAGES: nattypetester-console
+
+          ARTIFACTS_DIR: ${{ github.workspace }}/artifacts
+          #V: s
+
+      - name: Upload 25 Error Logs
+        if: ${{ failure() && steps.build_25.conclusion == 'failure' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: Error-logs-${{ matrix.version }}-${{ matrix.package_arch }}-${{ matrix.arch }}-${{ hashFiles('**/Makefile') }}
+          path: ${{ github.workspace }}/artifacts/logs
+
+      - name: Collect package
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          pkg_dir="artifacts/bin/packages/${{ matrix.package_arch }}"
+
+          if [[ ! -d "$pkg_dir" ]]; then
+            echo "::error::Package architecture directory not found: $pkg_dir"
+            find artifacts/bin/packages -maxdepth 2 -type d || true
+            exit 1
+          fi
+
+          mapfile -d '' packages < <(
+            find "$pkg_dir" -type f \
+              -name "nattypetester-console*.${{ matrix.extension }}" \
+              -print0
+          )
+
+          if (( ${#packages[@]} != 1 )); then
+            echo "::error::Expected exactly one package, found ${#packages[@]}"
+            find "$pkg_dir" -type f || true
+            exit 1
+          fi
+
+          tag_slug="${RELEASE_TAG//\//-}"
+          mkdir -p dist
+
+          output="dist/nattypetester-console-${tag_slug}-${{ matrix.series }}-${{ matrix.package_arch }}.${{ matrix.extension }}"
+
+          cp -v "${packages[0]}" "$output"
+
+          ls -lh dist/
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nattypetester-${{ matrix.series }}-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-24.04
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: nattypetester-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Generate checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cd release-assets
+
+          find . -maxdepth 1 -type f \
+            \( -name '*.ipk' -o -name '*.apk' \) \
+            -print0 |
+            sort -z |
+            xargs -0r sha256sum > SHA256SUMS
+
+          cat SHA256SUMS
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: NatTypeTester ${{ github.ref_name }}
+          files: release-assets/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          overwrite_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
