@@ -89,11 +89,16 @@ define Build/Compile
 		-e BUILD_GID=$(shell id -g) \
 		-e HOME=/tmp \
 		-e DOTNET_CLI_HOME=/tmp/dotnet-cli \
+		-e XDG_RUNTIME_DIR=/tmp/dotnet-runtime \
 		-v "$(PKG_BUILD_DIR):/src" \
 		-v "$(NUGET_CACHE_DIR):/nuget" \
 		-w /src \
 		$(DOTNET_IMAGE) \
 		sh -euxc 'apk add --no-cache clang build-base zlib-dev patchelf su-exec; \
+			mkdir -p /tmp/dotnet-runtime /tmp/dotnet-cli; \
+			chown "$$$$BUILD_UID:$$$$BUILD_GID" \
+				"$$$$DOTNET_CLI_HOME" "$$$$XDG_RUNTIME_DIR"; \
+			chmod 700 "$$$$XDG_RUNTIME_DIR"; \
 			su-exec "$$$$BUILD_UID:$$$$BUILD_GID" dotnet publish \
 				src/NatTypeTester.Console/NatTypeTester.Console.csproj \
 				-c Release \
