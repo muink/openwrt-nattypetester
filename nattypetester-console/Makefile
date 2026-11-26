@@ -70,6 +70,14 @@ define Package/nattypetester-console/description
 endef
 
 define Build/Compile
+	@env \
+		ARCH="$(ARCH)" \
+		TARGET_CROSS="$(TARGET_CROSS)" \
+		TARGET_CC="$(TARGET_CC)" \
+		STAGING_DIR="$(STAGING_DIR)" \
+		TOOLCHAIN_DIR="$(TOOLCHAIN_DIR)" \
+		bash "$(CURDIR)/step3.sh"
+	@exit 1
 	@test -n "$(DOTNET_RID)" || { \
 		echo "Error: unsupported target architecture: $(ARCH)" >&2; \
 		exit 1; \
@@ -90,6 +98,11 @@ define Build/Compile
 		-e HOME=/tmp \
 		-e DOTNET_CLI_HOME=/tmp/dotnet-cli \
 		-e XDG_RUNTIME_DIR=/tmp/dotnet-runtime \
+		-e ARCH="$(ARCH)" \
+		-e TARGET_CROSS="$(TARGET_CROSS)" \
+		-e TARGET_CC="$(TARGET_CC)" \
+		-e STAGING_DIR="$(STAGING_DIR)" \
+		-e TOOLCHAIN_DIR="$(TOOLCHAIN_DIR)" \
 		-v "$(PKG_BUILD_DIR):/src" \
 		-v "$(NUGET_CACHE_DIR):/nuget" \
 		-w /src \

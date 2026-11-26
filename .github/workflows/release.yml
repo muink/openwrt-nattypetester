@@ -41,13 +41,6 @@ jobs:
             package_arch: 'aarch64_generic'
             extension: 'ipk'
 
-          - series: '24.10'
-            version: '24.10.8'
-            target: 'armsr/armv7'
-            arch: 'armv7'
-            package_arch: 'arm_cortex-a15_neon-vfpv4'
-            extension: 'ipk'
-
           # OpenWrt 25.12 (APK)
           - series: '25.12'
             version: '25.12.6'
@@ -61,13 +54,6 @@ jobs:
             target: 'armsr/armv8'
             arch: 'aarch64'
             package_arch: 'aarch64_generic'
-            extension: 'apk'
-
-          - series: '25.12'
-            version: '25.12.6'
-            target: 'armsr/armv7'
-            arch: 'armv7'
-            package_arch: 'arm_cortex-a15_neon-vfpv4'
             extension: 'apk'
 
     steps:
