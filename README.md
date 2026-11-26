@@ -1,214 +1,184 @@
 # NatTypeTester Console for OpenWrt
 
-This feed package builds the upstream `NatTypeTester.Console` project as a
-Native AOT executable and installs it as `/usr/bin/nattypetester`.
+This feed packages the upstream [`NatTypeTester.Console`](https://github.com/HMBSbige/NatTypeTester) application as a self-contained .NET Native AOT executable and installs it as:
 
-## Supported targets
+```text
+/usr/bin/nattypetester
+```
 
-| OpenWrt Architecture | OpenWrt Config | .NET RID | Container Platform |
-|---|---|---|---|
-| x86_64 | `x86_64` | `linux-musl-x64` | `linux/amd64` |
-| aarch64 | `aarch64` | `linux-musl-arm64` | `linux/arm64/v8` |
-| ARMv7 | `arm_v7` | `linux-musl-arm` | `linux/arm/v7` |
+The package is built from the upstream `10.0.10` source tag by default. It does not install the .NET runtime on the router.
 
-ARMv7 support is limited to 32-bit ARMv7 targets. ARMv5 and ARMv6 are not supported.
+## Supported OpenWrt targets
 
-The package is restricted to the supported architectures through OpenWrt's package dependency conditions.
+The release workflow builds the following target/subtarget combinations for both OpenWrt 24.10 and 25.12:
 
-## Build Prerequisites
+| Architecture | OpenWrt target | .NET RID | Container platform | Package format |
+|---|---|---|---|---|
+| x86_64 | `x86/64` | `linux-musl-x64` | `linux/amd64` | `.ipk` on 24.10; `.apk` on 25.12 |
+| aarch64 | `armsr/armv8` | `linux-musl-arm64` | `linux/arm64` | `.ipk` on 24.10; `.apk` on 25.12 |
+| ARMv7 | `armsr/armv7` | `linux-musl-arm` | `linux/arm/v7` | `.ipk` on 24.10; `.apk` on 25.12 |
 
-- OpenWrt SDK for the target architecture.
-- Docker or Podman.
-- Internet access for downloading the .NET SDK image and NuGet packages.
+ARM support is limited to the listed `armsr` targets. In particular, the ARMv7 build targets the `armsr/armv7` profile; it should not be treated as a generic binary for every 32-bit ARM device. ARMv5 and ARMv6 are not supported.
 
-Native AOT builds are performed inside an Alpine-based .NET SDK container to avoid host/target libc incompatibilities.
+The package Makefile also restricts package selection to the architectures it supports. The SDK's `ARCH_PACKAGES` value determines the actual package output directory; do not infer that directory from the .NET RID.
 
-When building ARM targets on an x86_64 host, QEMU and binfmt support are required to run ARM containers.
+## How the build works
 
-The container installs the Native AOT toolchain before publishing:
+The package Makefile runs `dotnet publish` inside an architecture-specific Alpine .NET SDK container. The container installs the Native AOT toolchain before publishing:
 
 ```sh
 apk add --no-cache clang build-base zlib-dev patchelf
 ```
 
-The NuGet global-packages directory is cached under `$(DL_DIR)/nattypetester-nuget`
-between builds.
+The publish uses Native AOT and invariant globalization. The resulting executable is self-contained and does not require a .NET runtime or ICU data on the router.
 
-## Building for x86_64
+The NuGet global-packages cache is stored under:
 
-Use an OpenWrt SDK whose target architecture is `x86_64`. Docker or Podman can
-run the matching `linux/amd64` .NET SDK image natively on an x86_64 host:
-
-```sh
-make package/feeds/<feed>/nattypetester-console/download V=s
-make package/feeds/<feed>/nattypetester-console/compile V=s
+```text
+$(DL_DIR)/nattypetester-nuget
 ```
 
-## Building for aarch64
+The container engine defaults to Docker. To use Podman for a local SDK build, pass `CONTAINER_ENGINE=podman` to `make`.
 
-Use an OpenWrt SDK for the desired aarch64 target/subtarget (for example, the
-SDK corresponding to the device's target family). The Makefile selects
-`linux-musl-arm64` and `linux/arm64` automatically when that SDK reports
-`ARCH=aarch64`.
+### libc and ABI note
 
-### On an ARM build host
+The build currently uses Alpine-based SDK images. The build step adjusts the executable's musl `DT_NEEDED` entry to the libc SONAME used by OpenWrt. This is a SONAME adjustment only; `patchelf` does not convert one musl ABI into another or guarantee that every symbol used by the executable exists on the target system.
 
-No CPU emulation is needed. Docker or Podman runs the ARM .NET SDK image
-natively. Run the same feed download and compile commands shown above.
+Alpine 3.24 uses musl 1.2.6, while the OpenWrt 24.10 and 25.12 SDKs targeted by this workflow use musl 1.2.5. Treat the generated packages as requiring validation on the corresponding OpenWrt release and target. If strict ABI matching is required, the native link step should use the target SDK's musl sysroot rather than relying only on the Alpine container's libc.
 
-### On an x86_64 Linux build host
+Do not use a package built for one OpenWrt release or target on another release/target unless its ABI and dependencies have been verified.
 
-The SDK itself can still run on the x86_64 host, but the build container must
-run as ARM. Docker Engine needs ARM `binfmt_misc`/QEMU user-mode emulation
-registered on the host. One way to register it is:
+## Build locally with an OpenWrt SDK
+
+Use the SDK matching the OpenWrt release and target/subtarget you want to build for. The SDK must be configured for a musl-based target supported by the package.
+
+Assuming this repository is the feed root and the package directory is `nattypetester-console/`, add the feed to the SDK:
+
+```sh
+# Run from the OpenWrt SDK directory.
+
+echo "src-git nattypetester https://github.com/muink/openwrt-nattypetester.git;master" >> feeds.conf
+# Or
+echo "src-link nattypetester /path/to/nattypetester-feed" >> feeds.conf
+
+./scripts/feeds update nattypetester
+./scripts/feeds install -p nattypetester nattypetester-console
+make defconfig
+```
+
+Build the package:
+
+```sh
+make package/feeds/nattypetester/nattypetester-console/download BUILD_LOG=1
+make package/feeds/nattypetester/nattypetester-console/compile BUILD_LOG=1 -j$(nproc)
+```
+
+To use Podman instead of Docker:
+
+```sh
+make package/feeds/nattypetester/nattypetester-console/compile \
+    CONTAINER_ENGINE=podman BUILD_LOG=1 -j$(nproc)
+```
+
+The Makefile selects the .NET RID, container platform and SDK image from the OpenWrt SDK target architecture. Build each target using its own matching SDK; changing only `ARCH` in an existing SDK is not sufficient.
+
+### Running ARM containers on an x86_64 Linux host
+
+ARM64 and ARMv7 builds run an ARM container. On an x86_64 Linux host, this requires working QEMU user-mode emulation registered with the host kernel through `binfmt_misc`.
+
+The registration must be performed where the host kernel is accessible. A rootless Podman container, a restricted nested container, or a GitHub Actions job container may not have permission to mount `binfmt_misc`. If registration fails with `operation not permitted`, configure it on the outer host, use a runner that already provides the required emulation, or build on a native ARM runner.
+
+For a full Linux host or VM where you have the required privileges, the `tonistiigi/binfmt` image can register the handlers:
 
 ```sh
 sudo modprobe binfmt_misc
-
-sudo mount -t binfmt_misc \
-    binfmt_misc /proc/sys/fs/binfmt_misc 2>/dev/null || true
-
+sudo mount -t binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc 2>/dev/null || true
 sudo podman run --privileged --rm \
     docker.io/tonistiigi/binfmt --install arm,arm64
 ```
 
-Verify ARM container support:
+This command is not expected to work from every containerized or restricted environment. Verify that the required handlers are registered before attempting an emulated ARM build.
 
-```sh
-# aarch64
-podman run --rm \
-	--platform linux/arm64 \
-	--entrypoint sh \
-	mcr.microsoft.com/dotnet/sdk:10.0.404-alpine3.24 \
-	-c 'uname -m && dotnet --version'
+## GitHub Actions builds and releases
 
-# ARMv7
-podman run --rm \
-	--platform linux/arm/v7 \
-	--entrypoint sh \
-	mcr.microsoft.com/dotnet/sdk:10.0.404-alpine3.24-arm32v7 \
-	-c 'uname -m && dotnet --version'
-```
+The repository's release workflow builds six combinations:
 
-It should print `aarch64`. Then use the aarch64 OpenWrt SDK and run:
+- OpenWrt 24.10: `x86/64`, `armsr/armv8` and `armsr/armv7` (IPK).
+- OpenWrt 25.12: `x86/64`, `armsr/armv8` and `armsr/armv7` (APK).
 
-```sh
-make package/feeds/<feed>/nattypetester-console/download BUILD_LOG=1
-make package/feeds/<feed>/nattypetester-console/compile BUILD_LOG=1 -j$(nproc)
-```
+It uses [`fantastic-packages/gh-action-sdk`](https://github.com/fantastic-packages/gh-action-sdk):
 
-`--platform linux/arm64` selects the ARM64 image; it does not install or
-configure CPU emulation by itself. On Docker Desktop, multi-architecture
-emulation is generally provided by the desktop VM. For Podman on Linux, ensure
-that the host has a working ARM64 QEMU/binfmt handler before building an ARM64
-container on an x86_64 host.
+- `fantastic-packages/gh-action-sdk@24.10` for OpenWrt 24.10.
+- `fantastic-packages/gh-action-sdk@master` for OpenWrt 25.12.
 
-### ARMv7 (32-bit ARM)
+The action receives its SDK selection and feed configuration through environment variables, including `TARGET`, `VERSION`, `FEED_DIR`, `FEEDNAME`, `PACKAGES` and `ARTIFACTS_DIR`. The workflow sets `PACKAGES=nattypetester-console` so that only this package is built.
 
-ARMv7 builds use the `linux-musl-arm` RID and an ARMv7 container.
+Both referenced `gh-action-sdk` branches currently include `docker/setup-qemu-action@v4`; no additional QEMU setup step is needed when using those actions. For local builds outside GitHub Actions, follow the QEMU/binfmt instructions above when building ARM containers on x86_64.
 
-On x86_64 hosts, QEMU/binfmt must be configured before building.
+The workflow is triggered by:
 
-Make sure the OpenWrt SDK is configured for an ARMv7 target (`CONFIG_arm_v7=y`).
+- Pushing a Git tag.
+- Manually dispatching the workflow with an existing tag.
 
-Build the package using the normal OpenWrt SDK commands:
+After all six matrix builds succeed, the release job collects the generated packages, creates `SHA256SUMS`, and publishes the `.ipk` and `.apk` files as GitHub Release assets. The OpenWrt SDK version used by each matrix entry is configured in the workflow; update those entries when moving to another point release.
 
-```bash
-make package/feeds/<feed>/nattypetester-console/compile BUILD_LOG=1 -j$(nproc)
-```
+## Source selection and package version
 
-The Makefile automatically selects:
+By default, `PKG_UPSTREAM_GITHASH` is empty. The package downloads the upstream `10.0.10` tag archive from GitHub codeload and verifies it with `PKG_HASH`.
 
-- .NET RID: linux-musl-arm
-- Container platform: linux/arm/v7
-- Native AOT compiler: ARM32
+To build a specific upstream commit instead, set `PKG_UPSTREAM_GITHASH` to its full commit hash. The Makefile then switches to the Git source download method. After the first download, set `PKG_MIRROR_HASH` to the SHA-256 reported by OpenWrt before publishing the package.
 
-ARMv7 builds have not been validated on all OpenWrt subtargets.
-
-Verify the resulting binary and its runtime dependencies on the target device.
-
-## Source selection
-
-By default, `PKG_UPSTREAM_GITHASH` is empty and the package downloads the
-upstream `10.0.10` tag archive from GitHub codeload. `PKG_HASH` verifies that
-source archive.
-
-To build a specific commit instead, set `PKG_UPSTREAM_GITHASH` to its full Git
-commit hash. The Makefile switches to the Git download method and uses
-`PKG_MIRROR_HASH` for the generated source archive. After the first download,
-use the SHA-256 reported by OpenWrt to fill in `PKG_MIRROR_HASH` before
-publishing the package.
-
-The package version uses OpenWrt's `~` commit suffix, while
-`MinVerVersionOverride` uses SemVer build metadata (`+<commit>`) for the
-application's informational version.
-
-## Runtime Verification
-
-After building, inspect the generated ELF dependencies:
-
-```bash
-readelf -d NatTypeTester.Console | grep NEEDED
-```
-
-The build process patches Alpine's musl SONAME to match OpenWrt's libc.so.
-
-Check all remaining shared library dependencies against the target OpenWrt system.
-
-For ARMv7, pay particular attention to possible libatomic dependencies.
-If libatomic.so.1 is required, add +libatomic to the package dependencies.
-
-Finally, test the executable on the target device:
-
-```bash
-nattypetester --help
-nattypetester rfc5780
-```
+The OpenWrt package version uses `~<short-commit>` when building from a commit. `MinVerVersionOverride` uses a SemVer build-metadata suffix (`+<full-commit>`) for the application's informational version.
 
 ## Runtime dependencies and globalization
 
-The package declares these runtime dependencies:
+The package Makefile declares these runtime dependencies:
 
-- `ca-bundle` for TLS certificate validation.
+- `ca-bundle` for certificate authorities used during TLS certificate validation.
 - `libopenssl` for OpenSSL-backed TLS/DTLS functionality.
-- `zlib` for compression support used by the Native AOT executable/runtime.
+- `zlib` for the native executable's compression support.
 
-The publish command sets `InvariantGlobalization=true`, so ICU and its language
-data packages are not required. Invariant globalization reduces globalization
-functionality (for example, culture-specific formatting, collation and
-casing); this is suitable for the command-line NAT testing use case, but it
-is not equivalent to full locale-aware .NET behavior.
+The publish command enables `InvariantGlobalization`, so ICU and its language-data packages are not required. Invariant globalization limits culture-sensitive behavior such as locale-specific formatting, collation and casing. This is suitable for the command-line NAT testing use case, but it is not equivalent to full locale-aware .NET behavior.
+
+The final ELF dependencies must still be checked against the actual target SDK and device. Do not add or remove package dependencies solely based on this list; use the generated ELF and runtime tests as the source of truth.
 
 ## Install and test
 
-Install the generated package on a matching OpenWrt device. OpenWrt releases
-using APK can install the `.apk` package with:
+Copy the package matching the device's OpenWrt release and package architecture to the router.
 
-```sh
-apk add ./nattypetester-console-*.apk
-```
-
-Older releases using opkg can install the `.ipk` package with:
+For OpenWrt 24.10 (opkg):
 
 ```sh
 opkg install ./nattypetester-console_*.ipk
 ```
 
-Then run:
+For OpenWrt 25.12 (APK), install a signed package using `apk add`. For an intentionally unsigned local build, allow an untrusted package explicitly:
+
+```sh
+apk add --allow-untrusted ./nattypetester-console-*.apk
+```
+
+Then check the CLI:
 
 ```sh
 nattypetester --help
 ```
 
-Before publishing a new build, inspect the executable's architecture and
-shared-library dependencies. For example, from the build host:
+Run an actual STUN test against a server that supports the requested test method:
 
 ```sh
-file <path-to-NatTypeTester.Console>
-readelf -h <path-to-NatTypeTester.Console>
-scanelf -n <path-to-NatTypeTester.Console>
+nattypetester rfc5780
 ```
 
-Also test the package on an actual router of each target architecture. The
-Makefile and this guide describe the intended build flow; they do not replace
-runtime verification against the exact OpenWrt release and device image.
+## Inspect the generated executable
+
+Before publishing a package, inspect the executable produced by the build:
+
+```sh
+file NatTypeTester.Console
+readelf -h NatTypeTester.Console
+readelf -d NatTypeTester.Console | grep NEEDED
+scanelf -n NatTypeTester.Console
+```
+
+Check that the ELF architecture matches the OpenWrt target and that every required shared library is provided by the target firmware or declared package dependencies. Test the installed package on a device or VM running the exact OpenWrt release and target/subtarget. A successful cross-build alone does not prove runtime compatibility.
