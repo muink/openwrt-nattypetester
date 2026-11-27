@@ -14,7 +14,6 @@ PKG_RELEASE:=1
 
 PKG_SOURCE_SUBDIR:=$(PKG_UPSTREAM_NAME)-$(PKG_UPSTREAM_VERSION)
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_SOURCE_SUBDIR)
-
 ifeq ($(PKG_UPSTREAM_GITHASH),)
   PKG_SOURCE_URL:=https://codeload.github.com/HMBSbige/NatTypeTester/tar.gz/refs/tags
   PKG_SOURCE_URL_FILE:=$(PKG_VERSION)
@@ -27,7 +26,6 @@ else
   PKG_SOURCE:=$(PKG_SOURCE_SUBDIR)-$(PKG_SOURCE_VERSION).tar.gz
   PKG_MIRROR_HASH:=
 endif
-
 PKG_MAINTAINER:=Anya Lin <hukk1996@gmail.com>
 PKG_LICENSE:=MIT
 PKG_LICENSE_FILES:=LICENSE
@@ -35,8 +33,7 @@ PKG_LICENSE_FILES:=LICENSE
 PKG_MINVER_VERSION:=$(PKG_UPSTREAM_VERSION)$(if $(PKG_UPSTREAM_GITHASH),+$(PKG_UPSTREAM_GITHASH))
 
 # NativeAOT is built in an Alpine container because the OpenWrt SDK host is
-# glibc-based while the target is musl. NativeAOT does not support cross-OS
-# compilation directly.
+# glibc-based while the target is musl.
 CONTAINER_ENGINE?=docker
 DOTNET_IMAGE?=mcr.microsoft.com/dotnet/sdk:10.0.404-alpine3.24
 NUGET_CACHE_DIR:=$(DL_DIR)/nattypetester-nuget
@@ -47,12 +44,6 @@ ifeq ($(ARCH),x86_64)
 else ifeq ($(ARCH),aarch64)
   DOTNET_RID:=linux-musl-arm64
   CONTAINER_PLATFORM:=linux/arm64
-else ifeq ($(ARCH),arm)
-  ifeq ($(CONFIG_arm_v7),y)
-    DOTNET_RID:=linux-musl-arm
-    CONTAINER_PLATFORM:=linux/arm/v7
-    DOTNET_IMAGE?=mcr.microsoft.com/dotnet/sdk:10.0.404-alpine3.24-arm32v7
-  endif
 endif
 
 include $(INCLUDE_DIR)/package.mk
@@ -62,7 +53,7 @@ define Package/nattypetester-console
   CATEGORY:=Network
   TITLE:=NatTypeTester STUN console client
   URL:=https://github.com/HMBSbige/NatTypeTester
-  DEPENDS:=@(aarch64||x86_64||arm_v7) +ca-bundle +libopenssl +zlib
+  DEPENDS:=@(aarch64||x86_64) +ca-bundle +libopenssl +zlib
 endef
 
 define Package/nattypetester-console/description
@@ -70,13 +61,6 @@ define Package/nattypetester-console/description
 endef
 
 define Build/Compile
-	@env \
-		ARCH="$(ARCH)" \
-		TARGET_CROSS="$(TARGET_CROSS)" \
-		TARGET_CC="$(TARGET_CC)" \
-		STAGING_DIR="$(STAGING_DIR)" \
-		TOOLCHAIN_DIR="$(TOOLCHAIN_DIR)" \
-		bash "$(CURDIR)/step3.sh"
 	@test -n "$(DOTNET_RID)" || { \
 		echo "Error: unsupported target architecture: $(ARCH)" >&2; \
 		exit 1; \
@@ -85,7 +69,14 @@ define Build/Compile
 		echo "Error: $(CONTAINER_ENGINE) is required." >&2; \
 		exit 1; \
 	}
-	@mkdir -p $(NUGET_CACHE_DIR)
+	@env \
+		ARCH="$(ARCH)" \
+		TARGET_CROSS="$(TARGET_CROSS)" \
+		TARGET_CC="$(TARGET_CC)" \
+		STAGING_DIR="$(STAGING_DIR)" \
+		TOOLCHAIN_DIR="$(TOOLCHAIN_DIR)" \
+		bash "$(CURDIR)/step3.sh"
+	@mkdir -p "$(NUGET_CACHE_DIR)"
 	$(CONTAINER_ENGINE) run --rm \
 		--platform $(CONTAINER_PLATFORM) \
 		--network host \
@@ -97,20 +88,19 @@ define Build/Compile
 		-e HOME=/tmp \
 		-e DOTNET_CLI_HOME=/tmp/dotnet-cli \
 		-e XDG_RUNTIME_DIR=/tmp/dotnet-runtime \
-		-e ARCH="$(ARCH)" \
-		-e TARGET_CROSS="$(TARGET_CROSS)" \
-		-e TARGET_CC="$(TARGET_CC)" \
-		-e STAGING_DIR="$(STAGING_DIR)" \
-		-e TOOLCHAIN_DIR="$(TOOLCHAIN_DIR)" \
 		-v "$(PKG_BUILD_DIR):/src" \
 		-v "$(NUGET_CACHE_DIR):/nuget" \
 		-w /src \
 		$(DOTNET_IMAGE) \
-		sh -euxc 'apk add --no-cache clang build-base zlib-dev patchelf su-exec; \
-			mkdir -p /tmp/dotnet-runtime /tmp/dotnet-cli; \
+		sh -euxc ' \
+			apk add --no-cache clang build-base zlib-dev patchelf su-exec; \
+			mkdir -p "$$$$DOTNET_CLI_HOME" "$$$$XDG_RUNTIME_DIR"; \
 			chown "$$$$BUILD_UID:$$$$BUILD_GID" \
 				"$$$$DOTNET_CLI_HOME" "$$$$XDG_RUNTIME_DIR"; \
 			chmod 700 "$$$$XDG_RUNTIME_DIR"; \
+			echo "=== Build environment ==="; \
+			uname -m; \
+			dotnet --info; \
 			su-exec "$$$$BUILD_UID:$$$$BUILD_GID" dotnet publish \
 				src/NatTypeTester.Console/NatTypeTester.Console.csproj \
 				-c Release \
@@ -120,14 +110,14 @@ define Build/Compile
 				-p:InvariantGlobalization=true \
 				-p:MinVerVersionOverride=$(PKG_MINVER_VERSION) \
 				-v:diag \
-				-bl:/tmp/nativeaot.binlog \
+				-bl:/src/nativeaot.binlog \
 				-o /src/publish; \
 			app=/src/publish/NatTypeTester.Console; \
-			echo "Checking NativeAOT output..."; \
-			exit 1; \
-			ls -lh "$$$$app"; \
+			echo "=== Checking NativeAOT output ==="; \
+			test -s "$$$$app"; \
 			test -x "$$$$app"; \
-			echo "ELF DT_NEEDED:"; \
+			ls -lh "$$$$app"; \
+			echo "=== ELF DT_NEEDED ==="; \
 			needed=$$$$(patchelf --print-needed "$$$$app"); \
 			printf "%s\n" "$$$$needed"; \
 			musl_libc=$$$$(printf "%s\n" "$$$$needed" | \
@@ -141,8 +131,9 @@ define Build/Compile
 				echo "Error: unexpected libc dependency" >&2; \
 				exit 1; \
 			fi; \
-			echo "Final ELF DT_NEEDED:"; \
-			patchelf --print-needed "$$$$app"'
+			echo "=== Final ELF DT_NEEDED ==="; \
+			patchelf --print-needed "$$$$app" \
+		'
 endef
 
 define Package/nattypetester-console/install
