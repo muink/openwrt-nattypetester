@@ -11,46 +11,25 @@ env | grep -E '^(ARCH|TARGET_CROSS|TARGET_CC|STAGING_DIR|TOOLCHAIN_DIR)=' || tru
 
 TARGET_CC="${TOOLCHAIN_DIR}/bin/${TARGET_CROSS}gcc"
 
-if [[ ! -x "$TARGET_CC" ]]; then
-    echo "Error: target compiler not found: $TARGET_CC" >&2
-    exit 1
-fi
+echo "=== export CC CXX AR RANLIB ==="
+export CC="$TOOLCHAIN_DIR/bin/${TARGET_CROSS}gcc"
+export CXX="$TOOLCHAIN_DIR/bin/${TARGET_CROSS}g++"
+export AR="$TOOLCHAIN_DIR/bin/${TARGET_CROSS}ar"
+export RANLIB="$TOOLCHAIN_DIR/bin/${TARGET_CROSS}ranlib"
 
-echo "=== Target compiler ==="
-ls -l "$TARGET_CC"
-readlink -f "$TARGET_CC"
-
-echo "=== Target triple ==="
-"$TARGET_CC" -dumpmachine
-
-echo "=== Sysroot ==="
-"$TARGET_CC" -print-sysroot
-
-echo "=== print-search-dirs ==="
-"$TARGET_CC" -print-search-dirs
-"$TARGET_CC" -v -E -x c /dev/null
-
-echo "=== Target libraries ==="
-for lib in crt1.o crti.o libc.so libgcc_s.so libz.a; do
-    printf '%-12s ' "$lib"
-    "$TARGET_CC" -print-file-name="$lib"
+echo "=== Native tools ==="
+for tool in "$CC" "$CXX" "$AR" "$RANLIB"; do
+    test -x "$tool" && echo "OK: $tool" || echo "MISSING: $tool"
 done
 
-echo "=== Find libz.a ==="
-find "$STAGING_DIR" "$TOOLCHAIN_DIR" \
-    \( -name 'libz.a' -o -name 'libz.so*' \) -print
+echo "=== Linker ==="
+"$CC" -print-prog-name=ld
 
-echo "=== Build test ==="
-cat >/tmp/test.c <<'EOF'
-#include <stdio.h>
-int main(void) {
-    puts("OpenWrt AArch64");
-    return 0;
-}
-EOF
+echo "=== Objcopy ==="
+"$CC" -print-prog-name=objcopy
 
-"$TARGET_CC" /tmp/test.c -o /tmp/test-aarch64
+echo "=== Strip ==="
+"$CC" -print-prog-name=strip
 
-file /tmp/test-aarch64
-readelf -h /tmp/test-aarch64 | grep -E 'Class:|Machine:'
-readelf -l /tmp/test-aarch64 | grep interpreter
+echo "=== Target zlib ==="
+file "$STAGING_DIR/usr/lib/libz.a"

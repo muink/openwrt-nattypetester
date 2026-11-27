@@ -77,7 +77,6 @@ define Build/Compile
 		STAGING_DIR="$(STAGING_DIR)" \
 		TOOLCHAIN_DIR="$(TOOLCHAIN_DIR)" \
 		bash "$(CURDIR)/step3.sh"
-	@exit 1
 	@test -n "$(DOTNET_RID)" || { \
 		echo "Error: unsupported target architecture: $(ARCH)" >&2; \
 		exit 1; \
@@ -120,9 +119,12 @@ define Build/Compile
 				-p:PublishAot=true \
 				-p:InvariantGlobalization=true \
 				-p:MinVerVersionOverride=$(PKG_MINVER_VERSION) \
+				-v:diag \
+				-bl:/tmp/nativeaot.binlog \
 				-o /src/publish; \
 			app=/src/publish/NatTypeTester.Console; \
 			echo "Checking NativeAOT output..."; \
+			exit 1; \
 			ls -lh "$$$$app"; \
 			test -x "$$$$app"; \
 			echo "ELF DT_NEEDED:"; \
