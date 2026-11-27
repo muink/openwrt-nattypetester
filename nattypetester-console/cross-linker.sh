@@ -1,118 +1,35 @@
+#!/bin/bash
 
-#!/usr/bin/env bash
+echo "=== cross-linker debug ===" >&2
+echo "BASH_VERSION=${BASH_VERSION:-unset}" >&2
+echo "argv0=$0" >&2
+echo "shell=$-" >&2
 
 set -euo pipefail
 
-echo "=== OpenWrt target build environment ==="
+: "${TARGET_CC:?TARGET_CC is not set}"
 
-: "${TARGET_CROSS:?TARGET_CROSS is not set}"
+args=()
 
-TOOLCHAIN_DIR=/toolchain
-STAGING_DIR=/staging
-TARGET_SYSROOT="${TOOLCHAIN_DIR}"
-
-TARGET_CC="${TOOLCHAIN_DIR}/bin/${TARGET_CROSS}gcc"
-TARGET_CXX="${TOOLCHAIN_DIR}/bin/${TARGET_CROSS}g++"
-TARGET_AR="${TOOLCHAIN_DIR}/bin/${TARGET_CROSS}ar"
-TARGET_RANLIB="${TOOLCHAIN_DIR}/bin/${TARGET_CROSS}ranlib"
-TARGET_STRIP="${TOOLCHAIN_DIR}/bin/${TARGET_CROSS}strip"
-
-export TARGET_CC TARGET_SYSROOT
-export LIBRARY_PATH="${STAGING_DIR}/usr/lib:${STAGING_DIR}/lib"
-
-echo "TARGET_CROSS  : ${TARGET_CROSS}"
-echo "TARGET_CC     : ${TARGET_CC}"
-echo "TARGET_SYSROOT: ${TARGET_SYSROOT}"
-echo "STAGING_DIR   : ${STAGING_DIR}"
-
-echo
-echo "=== Target compiler ==="
-
-for tool in \
-    "${TARGET_CC}" \
-    "${TARGET_CXX}" \
-    "${TARGET_AR}" \
-    "${TARGET_RANLIB}" \
-    "${TARGET_STRIP}"; do
-
-    if [[ ! -x "${tool}" ]]; then
-        echo "Error: target tool not found or not executable: ${tool}" >&2
-        exit 1
-    fi
-
-    echo "OK: ${tool}"
+for arg in "$@"; do
+    case "${arg}" in
+        --target=*)
+            echo "[cross-linker] Skip Clang target option: ${arg}" >&2
+            ;;
+        *)
+            args+=("${arg}")
+            ;;
+    esac
 done
 
-echo
-echo "=== Target triple ==="
+echo "[cross-linker] Compiler: ${TARGET_CC}" >&2
+echo "[cross-linker] Arguments:" >&2
 
-"${TARGET_CC}" -dumpmachine
+printf '  %q\n' "${args[@]}" >&2
 
-echo
-echo "=== Target sysroot ==="
+echo "[cross-linker] GCC version:" >&2
+"${TARGET_CC}" --version >&2
 
-"${TARGET_CC}" --sysroot="${TARGET_SYSROOT}" -print-sysroot
+echo "[cross-linker] Executing linker..." >&2
 
-echo
-echo "=== Target libraries ==="
-
-for lib in crt1.o crti.o libc.so libgcc_s.so; do
-    path="$(
-        "${TARGET_CC}" \
-            --sysroot="${TARGET_SYSROOT}" \
-            -print-file-name="${lib}"
-    )"
-
-    if [[ ! -e "${path}" ]]; then
-        echo "Error: target library not found: ${lib} (${path})" >&2
-        exit 1
-    fi
-
-    printf '%-12s %s\n' "${lib}" "${path}"
-done
-
-echo
-echo "=== OpenWrt staging libraries ==="
-
-for lib in libssl.so libcrypto.so libz.so; do
-    path="${STAGING_DIR}/usr/lib/${lib}"
-
-    if [[ ! -e "${path}" ]]; then
-        echo "Error: target library not found: ${path}" >&2
-        exit 1
-    fi
-
-    ls -l "${path}"
-done
-
-echo
-echo "=== Cross-compile and link test ==="
-
-tmpdir="$(mktemp -d)"
-trap 'rm -rf "${tmpdir}"' EXIT
-
-cat > "${tmpdir}/test.c" <<'EOF'
-#include <stdio.h>
-
-int main(void)
-{
-    puts("OpenWrt cross-compile test");
-    return 0;
-}
-EOF
-
-"${TARGET_CC}" \
-    --sysroot="${TARGET_SYSROOT}" \
-    "${tmpdir}/test.c" \
-    -o "${tmpdir}/test" \
-    -lssl \
-    -lcrypto \
-    -lz
-
-echo
-echo "=== Test ELF ==="
-
-readelf -h "${tmpdir}/test" | grep -E 'Class:|Machine:'
-
-echo
-echo "OpenWrt target toolchain check passed."
+exec "${TARGET_CC}" -v "${args[@]}"
