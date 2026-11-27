@@ -94,12 +94,14 @@ define Build/Compile
 		-e XDG_RUNTIME_DIR=/tmp/dotnet-runtime \
 		-e TARGET_CROSS="$(TARGET_CROSS)" \
 		-e TARGET_RID="$(DOTNET_RID)" \
+		-e STAGING_DIR_HOST="$(STAGING_DIR_HOST)" \
 		-e BUILD_UID=$(shell id -u) \
 		-e BUILD_GID=$(shell id -g) \
 		-v "$(PKG_BUILD_DIR):/src" \
 		-v "$(CURDIR):/build:ro" \
 		-v "$(TOOLCHAIN_DIR):/toolchain:ro" \
 		-v "$(STAGING_DIR):/staging:ro" \
+		-v "$(STAGING_DIR_HOST):/host:ro" \
 		-v "$(NUGET_CACHE_DIR):/nuget" \
 		-w /src \
 		$(DOTNET_IMAGE) \
@@ -132,6 +134,7 @@ define Build/Compile
 					DOTNET_CLI_HOME="$$$$DOTNET_CLI_HOME" \
 					XDG_RUNTIME_DIR="$$$$XDG_RUNTIME_DIR" \
 					NUGET_PACKAGES=/nuget \
+					STAGING_DIR=/staging \
 					LIBRARY_PATH="$$$$LIBRARY_PATH" \
 					TARGET_CC="$$$$TARGET_CC" \
 					TARGET_SYSROOT="$$$$TARGET_SYSROOT" \

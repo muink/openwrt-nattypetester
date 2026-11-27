@@ -11,6 +11,8 @@ TOOLCHAIN_DIR=/toolchain
 STAGING_DIR=/staging
 TARGET_SYSROOT="${TOOLCHAIN_DIR}"
 
+export STAGING_DIR
+
 TARGET_CC="${TOOLCHAIN_DIR}/bin/${TARGET_CROSS}gcc"
 TARGET_CXX="${TOOLCHAIN_DIR}/bin/${TARGET_CROSS}g++"
 TARGET_AR="${TOOLCHAIN_DIR}/bin/${TARGET_CROSS}ar"
@@ -24,6 +26,15 @@ echo "TARGET_CROSS  : ${TARGET_CROSS}"
 echo "TARGET_CC     : ${TARGET_CC}"
 echo "TARGET_SYSROOT: ${TARGET_SYSROOT}"
 echo "STAGING_DIR   : ${STAGING_DIR}"
+
+echo
+echo "=== OpenWrt host runtime ==="
+
+if [[ ! -e /host/lib/ld-linux-x86-64.so.2 ]]; then
+    echo "Error: OpenWrt host dynamic loader not found:" >&2
+    echo "  /host/lib/ld-linux-x86-64.so.2" >&2
+    exit 1
+fi
 
 echo
 echo "=== Target compiler ==="
